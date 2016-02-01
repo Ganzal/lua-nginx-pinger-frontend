@@ -36,6 +36,13 @@ function _M.new ()
     -- Реестр локальных переменных
     --
 
+    -- Метод HTTP
+    self.http_method = ngx.req.get_method()
+
+    if 'HEAD' ~= ngx.req.get_method() then
+      ngx.header.content_type = 'text/plain'
+    end
+
     -- Экземпляр подключения к Redis
     self.redis = nil
 
@@ -69,8 +76,11 @@ function _M.get_redis_connection (self)
   local redis = resty_redis:new()
 
   if not redis then
-    ngx.say('redis:new() failed: ', err)
-    return
+    if 'HEAD' ~= self.http_method then
+      ngx.say('redis:new() failed: ', err)
+    end
+
+    return ngx.exit(ngx.OK)
   end
 
   redis:set_timeout(1000)
@@ -85,15 +95,23 @@ function _M.get_redis_connection (self)
   -- подключение не удалось - выход
   if not ok then
     ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
-    ngx.header["Content-type"] = "text/plain"
-    ngx.say('redis:connect() failed:', err)
-    ngx.exit(0)
-    return
+
+    if 'HEAD' ~= self.http_method then
+      ngx.say('redis:connect() failed:', err)
+    end
+
+    return ngx.exit(ngx.OK)
   end
 
   ok, err = redis:select(self.redis_database)
   if not ok then
-    ngx.say('redis:select() failed:', err)
+    ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
+
+    if 'HEAD' ~= self.http_method then
+      ngx.say('redis:select() failed:', err)
+    end
+
+    return ngx.exit(ngx.OK)
   end
 
   -- подключение удалось
@@ -130,7 +148,10 @@ function _M.main (self)
   -- некорректный формат адреса запроса
   if not label then
     ngx.status = ngx.HTTP_BAD_REQUEST
-    ngx.say('Invalid URI format')
+    if 'HEAD' ~= self.http_method then
+      ngx.say('Invalid URI format')
+    end
+
     return ngx.exit(ngx.OK)
   end
 
@@ -146,14 +167,20 @@ function _M.main (self)
     ngx.log(ngx.ERR, '500 redis:hgetall() failed: ', err)
 
     ngx.status = ngx.HTTP_INTERNAL_SERVER_ERROR
-    ngx.say('Unable to read registry data')
+    if 'HEAD' ~= self.http_method then
+      ngx.say('Unable to read registry data')
+    end
+
     return ngx.exit(ngx.OK)
   end
 
   -- успешное чтение, но нет такой записи
   if 0 == table.getn(data_raw) then
     ngx.status = ngx.HTTP_NOT_FOUND
-    ngx.say('Not found')
+    if 'HEAD' ~= self.http_method then
+      ngx.say('Not found')
+    end
+
     return ngx.exit(ngx.OK)
   end
 
@@ -173,12 +200,18 @@ function _M.main (self)
   local state_tail = bit.band(1, data.state)
   if 1 ~= state_tail then
     ngx.status = ngx.HTTP_SERVICE_UNAVAILABLE
-    ngx.say('Offline')
+    if 'HEAD' ~= self.http_method then
+      ngx.say('Offline')
+    end
+
     return ngx.exit(ngx.OK)
   end
 
   ngx.status = ngx.HTTP_OK
-  ngx.say('Online')
+  if 'HEAD' ~= self.http_method then
+    ngx.say('Online')
+  end
+
   return ngx.exit(ngx.OK)
 
 end
