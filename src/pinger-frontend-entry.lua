@@ -6,6 +6,16 @@
 --  @since 2016-01-31
 --
 
+local http_method = ngx.req.get_method()
+
+if 'HEAD' ~= http_method and 'GET' ~= http_method then
+  ngx.header.content_type = 'text/plain'
+  ngx.status = ngx.HTTP_NOT_ALLOWED
+
+  ngx.say('Only GET,HEAD allowed')
+  return ngx.exit(ngx.OK)
+end
+
 local pinger_frontend_class = require "pinger-frontend"
 local pinger_frontend = pinger_frontend_class:new()
 
